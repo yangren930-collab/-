@@ -729,7 +729,13 @@ function updateResults(){
   if(gameState.resultTimer>600)gameState.screen='TITLE';
 }
 
-canvas.addEventListener('click',()=>{
+// touchend on document so it works regardless of canvas offset
+document.addEventListener('touchend',()=>{
+  if(gameState.screen==='TITLE')gameState.screen='CHAR_SELECT';
+  else if(gameState.screen==='RESULTS'&&gameState.resultTimer>120)startBattle();
+},{passive:true});
+// fallback for desktop
+document.addEventListener('click',()=>{
   if(gameState.screen==='TITLE')gameState.screen='CHAR_SELECT';
   else if(gameState.screen==='RESULTS'&&gameState.resultTimer>120)startBattle();
 });
