@@ -401,12 +401,17 @@ const AI = (() => {
 // ═══════════════════════════════════════════════════════════════
 // INPUT
 // ═══════════════════════════════════════════════════════════════
+// 右半分を4象限に分割して大きなタッチエリアを確保
+// 右半分の中心: x=(640+1200)/2=920, y=360
 const VPAD = {
-  dpadCX:160,dpadCY:570,dpadArmW:70,dpadArmH:55,
-  jump:   {x:1060,y:460,r:44,label:'J'},
-  attack: {x:1160,y:520,r:44,label:'A'},
-  special:{x:1060,y:580,r:38,label:'S'},
-  shield: {x:1160,y:460,r:38,label:'D'},
+  dpadCX:180,dpadCY:540,dpadArmW:72,dpadArmH:56,
+  // 表示位置（右半分の各象限中心）
+  jump:   {x:780, y:210, r:52, label:'J'},  // 右上左
+  shield: {x:1080,y:210, r:46, label:'D'},  // 右上右
+  special:{x:780, y:540, r:46, label:'S'},  // 右下左
+  attack: {x:1080,y:540, r:52, label:'A'},  // 右下右
+  // 象限境界
+  splitX: 930, splitY: 375,
 };
 
 class InputManager {
@@ -462,13 +467,18 @@ class InputManager {
   _classifyTouch(lx,ly,state){
     const v=VPAD;
     if(lx<640){
-      const dx=lx-v.dpadCX,dy=ly-v.dpadCY,dead=28;
-      if(Math.abs(dx)>dead)state[dx>0?'right':'left']=true;
-      if(Math.abs(dy)>dead)state[dy>0?'down':'up']=true;
-      return;
-    }
-    for(const[key,btn]of Object.entries({jump:v.jump,attack:v.attack,special:v.special,shield:v.shield})){
-      if(Math.sqrt((lx-btn.x)**2+(ly-btn.y)**2)<=btn.r+16)state[key]=true;
+      // Dパッド: 主軸方向優先 + 斜め対応
+      const dx=lx-v.dpadCX, dy=ly-v.dpadCY;
+      const dead=22;
+      if(Math.abs(dx)>dead) state[dx>0?'right':'left']=true;
+      if(Math.abs(dy)>dead) state[dy>0?'down':'up']=true;
+    } else {
+      // 右半分を4象限に分割 → タッチエリア最大化
+      if(ly < v.splitY){
+        state[lx < v.splitX ? 'jump' : 'shield']=true;
+      } else {
+        state[lx < v.splitX ? 'special' : 'attack']=true;
+      }
     }
   }
   _emptyRaw(){return{left:false,right:false,up:false,down:false,jump:false,attack:false,special:false,shield:false};}
@@ -601,16 +611,39 @@ class Renderer {
   }
   _drawVPad(){
     const ctx=this.ctx,data=this.inputManager.getVirtualGamepadRenderData(),vp=data.vpad,raw=data.raw;
-    ctx.save();ctx.globalAlpha=0.45;
-    const dCX=vp.dpadCX,dCY=vp.dpadCY,aw=vp.dpadArmW,ah=vp.dpadArmH;
-    const parts=[{k:'left',rx:dCX-aw-8,ry:dCY-ah/2,rw:aw,rh:ah},{k:'right',rx:dCX+8,ry:dCY-ah/2,rw:aw,rh:ah},{k:'up',rx:dCX-ah/2,ry:dCY-aw-8,rw:ah,rh:aw},{k:'down',rx:dCX-ah/2,ry:dCY+8,rw:ah,rh:aw}];
-    for(const p of parts){ctx.fillStyle=raw[p.k]?'#ffffff':'#666666';this._rr(ctx,p.rx,p.ry,p.rw,p.rh,6,true,false);}
-    ctx.fillStyle='#444444';this._rr(ctx,dCX-ah/2,dCY-ah/2,ah,ah,6,true,false);
-    const btns=[{cfg:vp.jump,k:'jump',c:'#44cc44'},{cfg:vp.attack,k:'attack',c:'#cc4444'},{cfg:vp.special,k:'special',c:'#4444cc'},{cfg:vp.shield,k:'shield',c:'#cccc44'}];
+    ctx.save();
+
+    // 右半分の象限区切り線（薄く）
+    ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(vp.splitX,0);ctx.lineTo(vp.splitX,LOGICAL_H);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(640,vp.splitY);ctx.lineTo(LOGICAL_W,vp.splitY);ctx.stroke();
+
+    // 右半分の各象限ボタン
+    const btns=[
+      {cfg:vp.jump,   k:'jump',   c:'#33bb33', zone:{x:640,y:0,     w:vp.splitX-640, h:vp.splitY}},
+      {cfg:vp.shield, k:'shield', c:'#bbbb22', zone:{x:vp.splitX,y:0,     w:LOGICAL_W-vp.splitX, h:vp.splitY}},
+      {cfg:vp.special,k:'special',c:'#3333bb', zone:{x:640,y:vp.splitY,w:vp.splitX-640, h:LOGICAL_H-vp.splitY}},
+      {cfg:vp.attack, k:'attack', c:'#bb3333', zone:{x:vp.splitX,y:vp.splitY,w:LOGICAL_W-vp.splitX, h:LOGICAL_H-vp.splitY}},
+    ];
     for(const b of btns){
-      ctx.fillStyle=raw[b.k]?b.c:'#555555';ctx.beginPath();ctx.arc(b.cfg.x,b.cfg.y,b.cfg.r,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#ffffff';ctx.font=`bold ${b.cfg.r*0.7}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(b.cfg.label,b.cfg.x,b.cfg.y);
+      // 象限背景（押したら明るく）
+      ctx.fillStyle=raw[b.k]?b.c.replace('bb','ff')+'44':'rgba(255,255,255,0.04)';
+      ctx.fillRect(b.zone.x,b.zone.y,b.zone.w,b.zone.h);
+      // ボタン円
+      ctx.globalAlpha=raw[b.k]?0.9:0.5;
+      ctx.fillStyle=raw[b.k]?b.c:'#555555';
+      ctx.beginPath();ctx.arc(b.cfg.x,b.cfg.y,b.cfg.r,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ffffff';ctx.font=`bold ${b.cfg.r*0.75}px sans-serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(b.cfg.label,b.cfg.x,b.cfg.y);
     }
+
+    // Dパッド
+    ctx.globalAlpha=0.55;
+    const dCX=vp.dpadCX,dCY=vp.dpadCY,aw=vp.dpadArmW,ah=vp.dpadArmH;
+    const parts=[{k:'left',rx:dCX-aw-6,ry:dCY-ah/2,rw:aw,rh:ah},{k:'right',rx:dCX+6,ry:dCY-ah/2,rw:aw,rh:ah},{k:'up',rx:dCX-ah/2,ry:dCY-aw-6,rw:ah,rh:aw},{k:'down',rx:dCX-ah/2,ry:dCY+6,rw:ah,rh:aw}];
+    for(const p of parts){ctx.fillStyle=raw[p.k]?'#ffffff':'#777777';this._rr(ctx,p.rx,p.ry,p.rw,p.rh,6,true,false);}
+    ctx.fillStyle='#555555';this._rr(ctx,dCX-ah/2,dCY-ah/2,ah,ah,6,true,false);
+
     ctx.textBaseline='alphabetic';ctx.restore();
   }
   _drawResults(gs,fighters){
