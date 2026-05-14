@@ -515,7 +515,7 @@ class Renderer {
     this._gradBg('#0d1117','#161b22');
     const ctx=this.ctx;ctx.save();ctx.textAlign='center';
     ctx.fillStyle='#ffffff';ctx.font='bold 48px sans-serif';ctx.fillText('キャラ選択',LOGICAL_W/2,80);
-    ctx.font='24px sans-serif';ctx.fillStyle='#888888';ctx.fillText('← → で選択  |  Aボタン(攻撃)で決定',LOGICAL_W/2,120);
+    ctx.font='24px sans-serif';ctx.fillStyle='#888888';ctx.fillText('カードをタップ→選択  |  選択中をタップ→決定',LOGICAL_W/2,120);
     const bw=240,bh=300,total=CHAR_KEYS.length*(bw+40)-40,sx=(LOGICAL_W-total)/2;
     CHAR_KEYS.forEach((key,i)=>{
       const cd=CHARACTERS[key],bx=sx+i*(bw+40),by=170,sel=gs.p1CharIndex===i;
@@ -677,6 +677,12 @@ function updateCharSelect(){
   if(snap.attackJustPressed||snap.jumpJustPressed)startBattle();
 }
 
+// キャラカードの論理座標を返す
+function getCharCardBounds(i){
+  const bw=240,bh=300,total=CHAR_KEYS.length*(bw+40)-40,sx=(LOGICAL_W-total)/2;
+  return{x:sx+i*(bw+40),y:170,w:bw,h:bh};
+}
+
 function startBattle(){
   const p1Key=CHAR_KEYS[gameState.p1CharIndex],cpuKey=CHAR_KEYS[Math.floor(Math.random()*CHAR_KEYS.length)];
   stage=getStage(gameState.stageId);
@@ -729,13 +735,33 @@ function updateResults(){
   if(gameState.resultTimer>600)gameState.screen='TITLE';
 }
 
-// touchend on document so it works regardless of canvas offset
-document.addEventListener('touchend',()=>{
-  if(gameState.screen==='TITLE')gameState.screen='CHAR_SELECT';
-  else if(gameState.screen==='RESULTS'&&gameState.resultTimer>120)startBattle();
+// タッチで論理座標に変換
+function touchToLogical(t){
+  return{
+    lx:(t.clientX-inputManager.offsetX)/inputManager.scaleX,
+    ly:(t.clientY-inputManager.offsetY)/inputManager.scaleY,
+  };
+}
+
+document.addEventListener('touchend',e=>{
+  if(gameState.screen==='TITLE'){gameState.screen='CHAR_SELECT';return;}
+  if(gameState.screen==='RESULTS'&&gameState.resultTimer>120){startBattle();return;}
+  if(gameState.screen==='CHAR_SELECT'&&e.changedTouches.length>0){
+    const{lx,ly}=touchToLogical(e.changedTouches[0]);
+    for(let i=0;i<CHAR_KEYS.length;i++){
+      const b=getCharCardBounds(i);
+      if(lx>=b.x&&lx<b.x+b.w&&ly>=b.y&&ly<b.y+b.h){
+        if(gameState.p1CharIndex===i){startBattle();}  // 選択済みをタップ→決定
+        else{gameState.p1CharIndex=i;}                  // 未選択をタップ→選択
+        break;
+      }
+    }
+    // カード外タップ→そのまま決定
+    const anyCard=Array.from({length:CHAR_KEYS.length},(_,i)=>getCharCardBounds(i)).some(b=>lx>=b.x&&lx<b.x+b.w&&ly>=b.y&&ly<b.y+b.h);
+    if(!anyCard)startBattle();
+  }
 },{passive:true});
-// fallback for desktop
-document.addEventListener('click',()=>{
+document.addEventListener('click',e=>{
   if(gameState.screen==='TITLE')gameState.screen='CHAR_SELECT';
   else if(gameState.screen==='RESULTS'&&gameState.resultTimer>120)startBattle();
 });
